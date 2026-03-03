@@ -13,13 +13,10 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGener
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import PromptTemplate
 
-# ----------------------------
-# 1. Setup & Secure Database Connection
-# ----------------------------
+
 load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-# Escape credentials for RFC 3986 compliance
 raw_user = os.getenv("MONGO_USER")
 raw_pass = os.getenv("MONGO_PASS")
 username = urllib.parse.quote_plus(raw_user) if raw_user else ""
@@ -28,7 +25,6 @@ cluster_url = os.getenv("MONGO_CLUSTER")
 
 MONGO_URI = f"mongodb+srv://{username}:{password}@{cluster_url}/?retryWrites=true&w=majority"
 
-# Initialize MongoDB
 try:
     client = MongoClient(MONGO_URI)
     db = client["DocuMind_DB"]
@@ -39,14 +35,10 @@ except Exception as e:
 
 st.set_page_config(page_title="DocuMind: Shareable RAG", page_icon="🧠", layout="wide")
 
-# Persistent Thread ID for sharing via URL
 if "thread_id" not in st.session_state:
     params = st.query_params
     st.session_state.thread_id = params.get("thread", str(uuid.uuid4()))
 
-# ----------------------------
-# 2. Sidebar (Upload & Share)
-# ----------------------------
 with st.sidebar:
     st.header("📂 Document Center")
     uploaded_files = st.file_uploader("Upload PDF", accept_multiple_files=True, type="pdf")
@@ -54,15 +46,13 @@ with st.sidebar:
     
     st.markdown("---")
     st.header("🔗 Share Chat")
-    # Generate shareable URL
+
     share_url = f"http://localhost:8501/?thread={st.session_state.thread_id}"
     st.write("Copy this link to share this thread:")
     st.code(share_url, language="text") 
     st.caption("Shared users will see the history stored in MongoDB.")
 
-# ----------------------------
-# 3. Helper Functions (Original Logic)
-# ----------------------------
+
 def get_pdf_text(pdf_docs):
     text = ""
     for pdf in pdf_docs:
@@ -83,16 +73,13 @@ def get_vector_store(text_chunks):
     )
     return FAISS.from_texts(text_chunks, embedding=embeddings)
 
-# ----------------------------
-# 4. Main UI & Chat Logic
-# ----------------------------
+
 st.title("🧠 DocuMind: Context-Aware RAG")
 st.markdown("Analyze your documents and share findings via persistent links.")
 
 if "vector_store" not in st.session_state:
     st.session_state.vector_store = None
 
-# A. Processing Phase (Animated)
 if process_button and uploaded_files:
     with st.spinner("🔄 Processing Document... Reading, Chunking, and Embedding."):
         raw_text = get_pdf_text(uploaded_files)
@@ -100,7 +87,6 @@ if process_button and uploaded_files:
         st.session_state.vector_store = get_vector_store(text_chunks)
         st.success("✅ Indexing Complete! Your document is ready for querying.")
 
-# B. Display History from MongoDB
 st.markdown("---")
 st.subheader("💬 Thread History")
 saved_chats = chat_history.find({"thread_id": st.session_state.thread_id}).sort("timestamp", 1)
@@ -108,7 +94,6 @@ for chat in saved_chats:
     with st.chat_message(chat["role"]):
         st.write(chat["content"])
 
-# C. Question/Answer Phase
 user_question = st.text_input("🔎 Query your documents:", placeholder="Ask something...")
 ask_button = st.button("Find Answer")
 
@@ -116,7 +101,6 @@ if user_question and (ask_button or user_question):
     if st.session_state.vector_store is None:
         st.warning("⚠ Please upload and process a PDF file first to enable retrieval!")
     else:
-        # THE ANIMATION: Spinner runs while AI processes
         with st.spinner("⏳ Analyzing document context and generating answer..."):
             docs = st.session_state.vector_store.similarity_search(user_question)
             
@@ -141,11 +125,10 @@ if user_question and (ask_button or user_question):
             response = llm.invoke(final_prompt)
             answer = response.content
 
-            # Persist Chat to MongoDB
             chat_history.insert_many([
                 {"thread_id": st.session_state.thread_id, "role": "user", "content": user_question, "timestamp": datetime.now()},
                 {"thread_id": st.session_state.thread_id, "role": "assistant", "content": answer, "timestamp": datetime.now()}
             ])
             
-            # Use st.rerun() to refresh the screen and show the new messages from DB
+            
             st.rerun()

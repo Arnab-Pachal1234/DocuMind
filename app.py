@@ -1,89 +1,151 @@
 
+import os
+import uuid
+import urllib.parse
 import streamlit as st
+from datetime import datetime
+from pymongo import MongoClient
 from dotenv import load_dotenv
-from pypdf import PdfReader
+from PyPDF2 import PdfReader
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain_community.vectorstores import FAISS
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough
+from langchain_core.prompts import PromptTemplate
 
-import os
-
+# ----------------------------
+# 1. Setup & Secure Database Connection
+# ----------------------------
 load_dotenv()
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-# -------- PDF Processing -------- #
+# Escape credentials for RFC 3986 compliance
+raw_user = os.getenv("MONGO_USER")
+raw_pass = os.getenv("MONGO_PASS")
+username = urllib.parse.quote_plus(raw_user) if raw_user else ""
+password = urllib.parse.quote_plus(raw_pass) if raw_pass else ""
+cluster_url = os.getenv("MONGO_CLUSTER") 
 
+MONGO_URI = f"mongodb+srv://{username}:{password}@{cluster_url}/?retryWrites=true&w=majority"
+
+# Initialize MongoDB
+try:
+    client = MongoClient(MONGO_URI)
+    db = client["DocuMind_DB"]
+    chat_history = db["chat_sessions"]
+except Exception as e:
+    st.error(f"🍃 MongoDB Connection Error: {e}")
+    st.stop()
+
+st.set_page_config(page_title="DocuMind: Shareable RAG", page_icon="🧠", layout="wide")
+
+# Persistent Thread ID for sharing via URL
+if "thread_id" not in st.session_state:
+    params = st.query_params
+    st.session_state.thread_id = params.get("thread", str(uuid.uuid4()))
+
+# ----------------------------
+# 2. Sidebar (Upload & Share)
+# ----------------------------
+with st.sidebar:
+    st.header("📂 Document Center")
+    uploaded_files = st.file_uploader("Upload PDF", accept_multiple_files=True, type="pdf")
+    process_button = st.button("Submit & Process")
+    
+    st.markdown("---")
+    st.header("🔗 Share Chat")
+    # Generate shareable URL
+    share_url = f"http://localhost:8501/?thread={st.session_state.thread_id}"
+    st.write("Copy this link to share this thread:")
+    st.code(share_url, language="text") 
+    st.caption("Shared users will see the history stored in MongoDB.")
+
+# ----------------------------
+# 3. Helper Functions (Original Logic)
+# ----------------------------
 def get_pdf_text(pdf_docs):
     text = ""
     for pdf in pdf_docs:
-        reader = PdfReader(pdf)
-        for page in reader.pages:
-            text += page.extract_text() or ""
+        pdf_reader = PdfReader(pdf)
+        for page in pdf_reader.pages:
+            extracted = page.extract_text()
+            if extracted: text += extracted
     return text
 
+def get_text_chunks(text):
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    return text_splitter.split_text(text)
 
-def get_vectorstore(text):
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
-        chunk_overlap=200
+def get_vector_store(text_chunks):
+    embeddings = GoogleGenerativeAIEmbeddings(
+        model="gemini-embedding-001", 
+        task_type="retrieval_document"
     )
-    chunks = splitter.split_text(text)
+    return FAISS.from_texts(text_chunks, embedding=embeddings)
 
-    embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-    return FAISS.from_texts(chunks, embeddings)
+# ----------------------------
+# 4. Main UI & Chat Logic
+# ----------------------------
+st.title("🧠 DocuMind: Context-Aware RAG")
+st.markdown("Analyze your documents and share findings via persistent links.")
 
+if "vector_store" not in st.session_state:
+    st.session_state.vector_store = None
 
-# -------- Streamlit App -------- #
+# A. Processing Phase (Animated)
+if process_button and uploaded_files:
+    with st.spinner("🔄 Processing Document... Reading, Chunking, and Embedding."):
+        raw_text = get_pdf_text(uploaded_files)
+        text_chunks = get_text_chunks(raw_text)
+        st.session_state.vector_store = get_vector_store(text_chunks)
+        st.success("✅ Indexing Complete! Your document is ready for querying.")
 
-def main():
-    st.set_page_config(page_title="DocuMind", page_icon="📚")
-    st.title("📚 DocuMind - Modern RAG Chatbot")
+# B. Display History from MongoDB
+st.markdown("---")
+st.subheader("💬 Thread History")
+saved_chats = chat_history.find({"thread_id": st.session_state.thread_id}).sort("timestamp", 1)
+for chat in saved_chats:
+    with st.chat_message(chat["role"]):
+        st.write(chat["content"])
 
-    if "vectorstore" not in st.session_state:
-        st.session_state.vectorstore = None
+# C. Question/Answer Phase
+user_question = st.text_input("🔎 Query your documents:", placeholder="Ask something...")
+ask_button = st.button("Find Answer")
 
-    with st.sidebar:
-        pdf_docs = st.file_uploader("Upload PDFs", accept_multiple_files=True)
+if user_question and (ask_button or user_question):
+    if st.session_state.vector_store is None:
+        st.warning("⚠ Please upload and process a PDF file first to enable retrieval!")
+    else:
+        # THE ANIMATION: Spinner runs while AI processes
+        with st.spinner("⏳ Analyzing document context and generating answer..."):
+            docs = st.session_state.vector_store.similarity_search(user_question)
+            
+            llm = ChatGoogleGenerativeAI(
+                model="gemini-2.5-flash",
+                temperature=0.3,
+                google_api_key=GOOGLE_API_KEY
+            )
 
-        if st.button("Process"):
-            if not pdf_docs:
-                st.error("Upload at least one PDF.")
-            else:
-                with st.spinner("Processing..."):
-                    text = get_pdf_text(pdf_docs)
-                    st.session_state.vectorstore = get_vectorstore(text)
-                    st.success("Documents Ready!")
+            prompt_template = """
+            Answer the question as detailed as possible from the provided context. 
+            If the answer is not in the context, just say "I don't know based on the provided documents".
+            
+            Context: {context}
+            Question: {question}
+            Answer:
+            """
+            prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
+            context_text = "\n\n".join([doc.page_content for doc in docs])
+            final_prompt = prompt.format(context=context_text, question=user_question)
 
-    user_question = st.chat_input("Ask something about your document...")
+            response = llm.invoke(final_prompt)
+            answer = response.content
 
-    if user_question and st.session_state.vectorstore:
-
-        retriever = st.session_state.vectorstore.as_retriever()
-
-        prompt = ChatPromptTemplate.from_template("""
-        Answer the question based only on the following context:
-        {context}
-
-        Question: {question}
-        """)
-
-        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.3)
-
-        chain = (
-            {"context": retriever, "question": RunnablePassthrough()}
-            | prompt
-            | llm
-            | StrOutputParser()
-        )
-
-        response = chain.invoke(user_question)
-
-        st.chat_message("user").write(user_question)
-        st.chat_message("assistant").write(response)
-
-
-if __name__ == "__main__":
-    main()
+            # Persist Chat to MongoDB
+            chat_history.insert_many([
+                {"thread_id": st.session_state.thread_id, "role": "user", "content": user_question, "timestamp": datetime.now()},
+                {"thread_id": st.session_state.thread_id, "role": "assistant", "content": answer, "timestamp": datetime.now()}
+            ])
+            
+            # Use st.rerun() to refresh the screen and show the new messages from DB
+            st.rerun()

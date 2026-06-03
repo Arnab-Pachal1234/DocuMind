@@ -20,12 +20,11 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # change this later to your React frontend URL
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 @app.get("/")
 def home():
@@ -70,15 +69,22 @@ async def upload_pdf(
                 detail=f"{file.filename} is not a PDF file."
             )
 
+    print("FILES RECEIVED:", [file.filename for file in files])
+
     raw_text = get_pdf_text(files)
+
+    print("RAW TEXT LENGTH:", len(raw_text))
+    print("RAW TEXT SAMPLE:", raw_text[:300])
 
     if not raw_text.strip():
         raise HTTPException(
             status_code=400,
-            detail="Could not extract text from the uploaded PDF."
+            detail="Could not extract text from this PDF. It may be a scanned/image-based PDF. Try a text-based PDF."
         )
 
     text_chunks = get_text_chunks(raw_text)
+
+    print("CHUNKS CREATED:", len(text_chunks))
 
     save_chunks_to_qdrant(thread_id, text_chunks)
 
@@ -88,7 +94,6 @@ async def upload_pdf(
         "chunks_created": len(text_chunks),
         "share_url": f"http://localhost:8000/thread/{thread_id}"
     }
-
 @app.post("/ask")
 def ask_question(request: AskRequest):
     if not request.question.strip():

@@ -9,34 +9,43 @@ def generate_answer(thread_id: str, question: str):
     docs = search_relevant_chunks(
         thread_id=thread_id,
         question=question,
-        limit=5
+        limit=6
     )
 
     context_text = "\n\n".join(
         [
-            f"Chunk {doc.metadata.get('chunk_index')}:\n{doc.page_content}"
+            f"[Chunk {doc.metadata.get('chunk_index')}]\n{doc.page_content}"
             for doc in docs
         ]
     )
 
+    print("FINAL CONTEXT SENT TO LLM:")
+    print(context_text[:2000])
+
     llm = ChatOpenAI(
         model="gpt-4o-mini",
-        temperature=0.3,
+        temperature=0,
         api_key=OPENAI_API_KEY
     )
 
     prompt_template = """
-You are a document question-answering assistant.
+You are DocuMind, a strict PDF question-answering assistant.
 
-Answer the question only using the provided relevant chunks.
+You must answer ONLY from the provided PDF chunks.
 
-If the answer is not present in the chunks, say:
-"I don't know based on the provided documents."
+Important rules:
+1. Do not use outside knowledge.
+2. Do not guess.
+3. If the chunks contain only sample text, lorem ipsum, placeholder text, or unrelated content, clearly say that.
+4. If the answer is not directly supported by the chunks, say:
+   "I could not find that answer in the uploaded PDF."
+5. Keep the answer clear and short.
+6. At the end, mention the chunk numbers used.
 
-Relevant Chunks:
+PDF Chunks:
 {context}
 
-Question:
+User Question:
 {question}
 
 Answer:

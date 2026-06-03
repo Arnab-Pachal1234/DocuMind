@@ -1,6 +1,6 @@
 from typing import List
 from fastapi import UploadFile
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 
@@ -8,13 +8,18 @@ def get_pdf_text(pdf_files: List[UploadFile]) -> str:
     text = ""
 
     for pdf in pdf_files:
-        pdf_reader = PdfReader(pdf.file)
+        try:
+            pdf.file.seek(0)
+            pdf_reader = PdfReader(pdf.file)
 
-        for page in pdf_reader.pages:
-            extracted = page.extract_text()
+            for page in pdf_reader.pages:
+                extracted = page.extract_text()
 
-            if extracted:
-                text += extracted + "\n"
+                if extracted:
+                    text += extracted + "\n"
+
+        except Exception as e:
+            print(f"Error reading PDF {pdf.filename}: {e}")
 
     return text
 

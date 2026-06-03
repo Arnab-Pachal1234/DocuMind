@@ -7,7 +7,7 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 
-from backend.config import (
+from config import (
     OPENAI_API_KEY,
     QDRANT_URL,
     QDRANT_API_KEY,

@@ -1,5 +1,5 @@
 from datetime import datetime
-from backend.database import chat_history
+from database import chat_history
 
 
 def save_chat(thread_id: str, question: str, answer: str):

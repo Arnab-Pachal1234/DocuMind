@@ -4,12 +4,12 @@ from typing import List, Optional
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.schemas import AskRequest
-from backend.pdf_utils import get_pdf_text, get_text_chunks
+from schemas import AskRequest
+from pdf_utils import get_pdf_text, get_text_chunks
 
-from backend.rag_service import generate_answer
-from backend.chat_service import save_chat, get_chat_history, delete_chat_history
-from backend.vector_store import save_chunks_to_qdrant
+from rag_service import generate_answer
+from chat_service import save_chat, get_chat_history, delete_chat_history
+from vector_store import save_chunks_to_qdrant
 
 app = FastAPI(
     title="DocuMind RAG API",

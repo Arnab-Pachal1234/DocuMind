@@ -1,8 +1,8 @@
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import PromptTemplate
 
-from backend.config import OPENAI_API_KEY
-from backend.vector_store import search_relevant_chunks
+from config import OPENAI_API_KEY
+from vector_store import search_relevant_chunks
 
 
 def generate_answer(thread_id: str, question: str):

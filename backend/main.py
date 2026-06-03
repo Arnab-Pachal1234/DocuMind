@@ -34,6 +34,9 @@ def home():
         "docs": "/docs"
     }
 
+@app.get("/health")
+def health_check():
+    return {"status": "healthy"}
 
 @app.post("/create-thread")
 def create_thread():
